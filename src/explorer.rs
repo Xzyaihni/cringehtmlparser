@@ -111,7 +111,7 @@ pub fn explore(html: Element)
                         Some(tag) =>
                         {
                             let name = tag.name();
-                            let content = tag.content();
+                            let content = tag.content().clone().unwrap_or_else(|| "none".to_owned());
 
                             println!("{name} = \"{content}\"");
                         },

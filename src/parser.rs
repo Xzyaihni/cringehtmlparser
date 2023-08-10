@@ -1,5 +1,6 @@
 use std::{
-    iter::Peekable
+    iter::Peekable,
+    ops::Index
 };
 
 use syntaxer::{
@@ -32,9 +33,9 @@ pub enum Child
 
 impl Child
 {
-    pub fn parse(mut leaves: &mut Peekable<Syntaxer<'_>>) -> Self
+    pub fn parse(mut leaves: &mut Peekable<Syntaxer<'_>>) -> Option<Self>
     {
-        match leaves.peek()
+        Some(match leaves.peek()
         {
             Some(Leaf::Content(_)) =>
             {
@@ -44,11 +45,16 @@ impl Child
                     _ => unreachable!()
                 };
 
+                if text.trim().is_empty()
+                {
+                    return None;
+                }
+
                 Self::Text(text)
             },
             Some(Leaf::Body(_)) => Self::Element(Element::parse(&mut leaves)),
             leaf => unexpected_leaf(leaf.cloned(), "{Content, Body}")
-        }
+        })
     }
 
     pub fn element(&self) -> Option<&Element>
@@ -82,16 +88,34 @@ impl Element
 {
     pub fn parse(mut leaves: &mut Peekable<Syntaxer<'_>>) -> Self
     {
-        let (name, tags) = match leaves.next()
+        let body = match leaves.next()
         {
-            Some(Leaf::Body(body)) => (body.name, body.tags),
+            Some(Leaf::Body(body)) => body,
             leaf => unexpected_leaf(leaf, "Body")
         };
 
         let mut children = Vec::new();
 
-        let childless = ["img"];
-        let has_children = !childless.contains(&name.as_ref());
+        let childless = [
+            "area",
+            "base",
+            "br",
+            "col",
+            "command",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "keygen",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr"
+        ];
+
+        let has_children = !childless.contains(&body.name.as_ref());
 
         if has_children
         {
@@ -101,9 +125,15 @@ impl Element
                 {
                     Leaf::End(end) =>
                     {
-                        if end.name != name
+                        if end.name != body.name
                         {
-                            panic!("expected {} end, got {} end", name, end.name);
+                            panic!(
+                                "expected {} end (line {}), got {} end (line {})",
+                                body.name,
+                                body.line,
+                                end.name,
+                                end.line
+                            );
                         }
 
                         leaves.next();
@@ -111,18 +141,47 @@ impl Element
                         break;
                     },
                     _ => ()
-
                 }
 
-                let child = Child::parse(&mut leaves);
-
-                children.push(child);
+                if let Some(child) = Child::parse(&mut leaves)
+                {
+                    children.push(child);
+                }
             }
         }
 
         let children = children.into_boxed_slice();
 
-        Self{name, tags, children}
+        Self{name: body.name, tags: body.tags, children}
+    }
+
+    #[allow(dead_code)]
+    pub fn get_name(&self, name: &str) -> Option<&Element>
+    {
+        self.children.iter().find(|child|
+        {
+            match child
+            {
+                Child::Element(x) =>
+                {
+                    x.name == name
+                },
+                _ => false
+            }
+        }).map(|child|
+        {
+            match child
+            {
+                Child::Element(x) => x,
+                _ => unreachable!()
+            }
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn get(&self, index: usize) -> Option<&Child>
+    {
+        self.children.get(index)
     }
 
     pub fn name(&self) -> &str
@@ -138,6 +197,16 @@ impl Element
     pub fn children(&self) -> &[Child]
     {
         &self.children
+    }
+}
+
+impl Index<usize> for Element
+{
+    type Output = Child;
+
+    fn index(&self, index: usize) -> &Self::Output
+    {
+        self.get(index).unwrap()
     }
 }
 

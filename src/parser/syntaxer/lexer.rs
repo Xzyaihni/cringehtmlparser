@@ -6,18 +6,31 @@ use std::{
 
 enum Action
 {
-    ReturnLexeme(Lexeme),
+    ReturnLexemeType(LexemeType),
     StopConsume,
     Stop,
     Skip,
     Continue
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct State
 {
+    line: u64,
     is_content: bool,
     is_literal: bool
+}
+
+impl Default for State
+{
+    fn default() -> Self
+    {
+        Self{
+            line: 1,
+            is_content: false,
+            is_literal: false
+        }
+    }
 }
 
 struct LexemeParser<'a, 'b>
@@ -36,7 +49,7 @@ impl<'a, 'b> LexemeParser<'a, 'b>
         Self{state, collected, text}
     }
 
-    fn parse(mut self) -> Lexeme
+    fn parse(mut self) -> LexemeType
     {
         loop
         {
@@ -48,7 +61,7 @@ impl<'a, 'b> LexemeParser<'a, 'b>
 
                     match action
                     {
-                        Action::ReturnLexeme(lexeme) =>
+                        Action::ReturnLexemeType(lexeme) =>
                         {
                             self.text.next();
 
@@ -85,6 +98,11 @@ impl<'a, 'b> LexemeParser<'a, 'b>
 
     fn parse_char(&mut self, c: char) -> Action
     {
+        if c == '\n'
+        {
+            self.state.line += 1;
+        }
+
         if self.state.is_literal
         {
             if c == '"'
@@ -119,7 +137,7 @@ impl<'a, 'b> LexemeParser<'a, 'b>
             {
                 if self.collected.is_empty()
                 {
-                    return Action::ReturnLexeme(Lexeme::BracketLeft);
+                    return Action::ReturnLexemeType(LexemeType::BracketLeft);
                 } else
                 {
                     return Action::Stop;
@@ -131,17 +149,27 @@ impl<'a, 'b> LexemeParser<'a, 'b>
                 {
                     self.state.is_content = true;
 
-                    return Action::ReturnLexeme(Lexeme::BracketRight);
+                    return Action::ReturnLexemeType(LexemeType::BracketRight);
                 } else
                 {
                     return Action::Stop;
                 }
             },
+            '/' =>
+            {
+                return if self.collected.is_empty()
+                {
+                    Action::ReturnLexemeType(LexemeType::EndSlash)
+                } else
+                {
+                    Action::Stop
+                };
+            },
             '=' =>
             {
                 return if self.collected.is_empty()
                 {
-                    Action::ReturnLexeme(Lexeme::Equals)
+                    Action::ReturnLexemeType(LexemeType::Equals)
                 } else
                 {
                     Action::Stop
@@ -169,34 +197,62 @@ impl<'a, 'b> LexemeParser<'a, 'b>
         Action::Continue
     }
 
-    fn parse_content(self) -> Lexeme
+    fn parse_content(self) -> LexemeType
     {
         if self.collected.chars().next() == Some('"')
         {
             let literal = self.collected.chars().skip(1).collect::<String>();
-            Lexeme::Literal(literal)
+            LexemeType::Literal(literal)
         } else
         {
-            Lexeme::Identifier(self.collected)
+            LexemeType::Identifier(self.collected)
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Lexeme
+#[derive(Debug, Clone, PartialEq)]
+pub enum LexemeType
 {
     BracketLeft,
     BracketRight,
     Identifier(String),
     Equals,
+    EndSlash,
     Literal(String)
+}
+
+#[derive(Debug)]
+pub struct Lexeme
+{
+    line: u64,
+    kind: LexemeType
 }
 
 impl Lexeme
 {
     fn parse(state: &mut State, text: &mut TextIter) -> Self
     {
-        LexemeParser::new(state, text).parse()
+        let kind = LexemeParser::new(state, text).parse();
+
+        Self{line: state.line, kind}
+    }
+
+    pub fn line(&self) -> u64
+    {
+        self.line
+    }
+
+    pub fn kind(&self) -> &LexemeType
+    {
+        &self.kind
+    }
+}
+
+impl PartialEq for Lexeme
+{
+    fn eq(&self, rhs: &Self) -> bool
+    {
+        self.kind == rhs.kind
     }
 }
 
